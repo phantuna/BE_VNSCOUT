@@ -5,12 +5,14 @@ import com.example.backend.dto.request.post.PostUpdateRequest;
 import com.example.backend.dto.response.post.PostResponse;
 import com.example.backend.entity.*;
 import com.example.backend.enums.PostStatus;
+import com.example.backend.enums.PostVisibility;
 import com.example.backend.mapper.PostMapper;
 import com.example.backend.repository.post.PostsRepository;
 import com.example.backend.repository.location.LocationsRepository;
 import com.example.backend.repository.photo.PhotosRepository;
 import com.example.backend.repository.post.saved.SavedPostRepository;
 import com.example.backend.repository.user.UserRepository;
+import com.example.backend.repository.user.follow.UserFollowRepository;
 import com.example.backend.service.photo.PhotoVerificationService;
 import com.example.backend.service.post.PostLikeService;
 import com.example.backend.service.post.PostService;
@@ -37,6 +39,9 @@ import com.example.backend.exception.ErrorCode;
 import com.example.backend.service.comment.ToxicCommentModerationService;
 import com.example.backend.dto.response.comment.ToxicModerationResponse;
 
+import com.example.backend.repository.post.report.ReportRepository;
+import com.example.backend.enums.ReportStatus;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -55,6 +60,8 @@ public class PostServiceImpl implements PostService {
     private final ApplicationEventPublisher eventPublisher;
     private final com.example.backend.service.banned.BadWordFilterService badWordFilterService;
     private final ToxicCommentModerationService toxicCommentModerationService;
+    private final UserFollowRepository userFollowRepository;
+    private final ReportRepository reportRepository;
 
     private static final double MAX_ALLOWED_DISTANCE_METERS = 5000.0;
 
@@ -99,13 +106,19 @@ public class PostServiceImpl implements PostService {
         post.setUser(user);
         post.setLocation(location);
         post.setLikeCount(0L);
-        
-        if (userLevel < 3) {
-            post.setStatus(PostStatus.PENDING_REVIEW);
-        } else {
-            post.setStatus(PostStatus.ACTIVE);
+
+        // Set visibility (mặc định PUBLIC nếu không truyền hoặc giá trị không hợp lệ)
+        PostVisibility visibility = PostVisibility.PUBLIC;
+        if (request.getVisibility() != null) {
+            try {
+                visibility = PostVisibility.valueOf(request.getVisibility().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                log.warn("[Post] Invalid visibility value '{}', defaulting to PUBLIC", request.getVisibility());
+            }
         }
-        
+        post.setVisibility(visibility);
+
+        // Status sẽ được xác định lại SAU khi xử lý ảnh bên dưới
         post.setManualLatitude(request.getManualLatitude());
         post.setManualLongitude(request.getManualLongitude());
 
@@ -168,6 +181,11 @@ public class PostServiceImpl implements PostService {
 
         post.setPhotos(new ArrayList<>(uploadedPhotos));
 
+        // ━━ Xác định trạng thái bài viết ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        boolean hasNoGpsPhoto = uploadedPhotos.stream().anyMatch(p -> {
+            PhotoMetadata meta = p.getMetadata();
+            return meta == null || meta.getGpsLatitude() == null || meta.getGpsLongitude() == null;
+        });
         boolean hasWarning = false;
         boolean hasLocationVerified = false;
 
@@ -178,6 +196,17 @@ public class PostServiceImpl implements PostService {
             if (Boolean.TRUE.equals(photo.getIsLocationVerified())) {
                 hasLocationVerified = true;
             }
+        }
+
+        // Rule 1: bài PRIVATE → không cần admin duyệt (chỉ mình tác giả thấy)
+        // Rule 2: user level < 3 → luôn phải duyệt (trừ PRIVATE)
+        // Rule 3: bất kỳ ảnh nào thiếu GPS → bắt buộc duyệt, dù level cao
+        if (visibility == PostVisibility.PRIVATE) {
+            post.setStatus(PostStatus.ACTIVE); // PRIVATE không cần duyệt, chỉ mình tác giả thấy
+        } else if (userLevel < 3 || hasNoGpsPhoto) {
+            post.setStatus(PostStatus.PENDING_REVIEW);
+        } else {
+            post.setStatus(PostStatus.ACTIVE);
         }
 
         reputationService.addPoints(user, 2, "Upload ảnh thành công");
@@ -240,6 +269,35 @@ public class PostServiceImpl implements PostService {
     @Transactional(readOnly = true)
     public PostResponse getPostById(String postId, String userId) {
         Posts post = getPostEntityById(postId);
+
+        boolean isAdmin = isCurrentViewerAdmin();
+        String authorId = post.getUser() != null ? post.getUser().getId() : null;
+        boolean isOwner = userId != null && userId.equals(authorId);
+
+        // Nếu bài bị ẩn do vi phạm (HIDDEN) hoặc đã bị xóa (deleted = 1): Chỉ ADMIN mới được xem
+        if ((post.getDeleted() != null && post.getDeleted() == 1) || post.getStatus() == PostStatus.HIDDEN) {
+            if (!isAdmin) {
+                throw new AppException(ErrorCode.POST_NOT_FOUND);
+            }
+        }
+
+        // Nếu bài viết đang có báo cáo chờ xử lý (PENDING): Tạm ẩn, chỉ ADMIN mới xem được
+        if (reportRepository.existsByPostIdAndStatus(post.getId(), ReportStatus.PENDING)) {
+            if (!isAdmin) {
+                throw new AppException(ErrorCode.POST_NOT_FOUND);
+            }
+        }
+
+        // Nếu bài PENDING_REVIEW: Chỉ chính tác giả hoặc ADMIN mới thấy
+        if (post.getStatus() == PostStatus.PENDING_REVIEW) {
+            if (!isOwner && !isAdmin) {
+                throw new AppException(ErrorCode.POST_NOT_FOUND);
+            }
+        }
+
+        // Kiểm tra quyền xem theo visibility
+        checkViewPermission(post, userId);
+
         boolean liked = userId != null && postLikeService.isLiked(userId, postId);
         boolean saved = userId != null && savedPostRepository.existsByUserIdAndPostIdAndDeleted(userId, postId, 0);
         return postMapper.toResponse(post, liked, saved);
@@ -260,12 +318,28 @@ public class PostServiceImpl implements PostService {
         Set<String> savedPostIds = userId != null && !postIds.isEmpty() ? 
             new HashSet<>(savedPostRepository.findSavedPostIdsByUserIdAndPostIdsIn(userId, postIds, 0)) : Collections.emptySet();
 
-        return postPage.map(post -> {
-            boolean liked = likedPostIds.contains(post.getId());
-            boolean saved = savedPostIds.contains(post.getId());
-            return postMapper.toResponse(post, liked, saved);
-        });
+        // Set của những userId mà viewer có quan hệ follow 2 chiều
+        Set<String> mutualFollowIds = userId != null ?
+            new HashSet<>(userFollowRepository.findMutualFollowUserIds(userId)) : Collections.emptySet();
+
+        List<PostResponse> visiblePosts = postPage.getContent().stream()
+            .filter(post -> canViewInFeed(post, userId, mutualFollowIds))
+            .map(post -> {
+                boolean liked = likedPostIds.contains(post.getId());
+                boolean saved = savedPostIds.contains(post.getId());
+                return postMapper.toResponse(post, liked, saved);
+            })
+            .toList();
+
+        // Trả về PageImpl — content đã lọc, totalElements vẫn là tổng từ DB
+        // (để FE không bị nhảy page kỳ lạ khi có bài bị lọc)
+        return new org.springframework.data.domain.PageImpl<>(
+            visiblePosts,
+            PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdDate")),
+            postPage.getTotalElements()
+        );
     }
+
 
     private double haversineKm(double lat1, double lon1, double lat2, double lon2) {
         double R = 6371; // Earth's radius in km
@@ -326,11 +400,23 @@ public class PostServiceImpl implements PostService {
         Set<String> savedPostIds = viewerId != null && !postIds.isEmpty() ? 
             new HashSet<>(savedPostRepository.findSavedPostIdsByUserIdAndPostIdsIn(viewerId, postIds, 0)) : Collections.emptySet();
 
-        return postPage.map(post -> {
-            boolean liked = likedPostIds.contains(post.getId());
-            boolean saved = savedPostIds.contains(post.getId());
-            return postMapper.toResponse(post, liked, saved);
-        });
+        Set<String> mutualFollowIds = viewerId != null ?
+            new HashSet<>(userFollowRepository.findMutualFollowUserIds(viewerId)) : Collections.emptySet();
+
+        List<PostResponse> visiblePosts = postPage.getContent().stream()
+            .filter(post -> canViewInFeed(post, viewerId, mutualFollowIds))
+            .map(post -> {
+                boolean liked = likedPostIds.contains(post.getId());
+                boolean saved = savedPostIds.contains(post.getId());
+                return postMapper.toResponse(post, liked, saved);
+            })
+            .toList();
+
+        return new org.springframework.data.domain.PageImpl<>(
+            visiblePosts,
+            PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdDate")),
+            postPage.getTotalElements()
+        );
     }
 
     @Override
@@ -349,11 +435,23 @@ public class PostServiceImpl implements PostService {
         Set<String> savedPostIds = viewerId != null && !postIds.isEmpty() ? 
             new HashSet<>(savedPostRepository.findSavedPostIdsByUserIdAndPostIdsIn(viewerId, postIds, 0)) : Collections.emptySet();
 
-        return postPage.map(post -> {
-            boolean liked = likedPostIds.contains(post.getId());
-            boolean saved = savedPostIds.contains(post.getId());
-            return postMapper.toResponse(post, liked, saved);
-        });
+        Set<String> mutualFollowIds = viewerId != null ?
+            new HashSet<>(userFollowRepository.findMutualFollowUserIds(viewerId)) : Collections.emptySet();
+
+        List<PostResponse> visiblePosts = postPage.getContent().stream()
+            .filter(post -> canViewInFeed(post, viewerId, mutualFollowIds))
+            .map(post -> {
+                boolean liked = likedPostIds.contains(post.getId());
+                boolean saved = savedPostIds.contains(post.getId());
+                return postMapper.toResponse(post, liked, saved);
+            })
+            .toList();
+
+        return new org.springframework.data.domain.PageImpl<>(
+            visiblePosts,
+            PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdDate")),
+            postPage.getTotalElements()
+        );
     }
 
     @Override
@@ -372,11 +470,71 @@ public class PostServiceImpl implements PostService {
         Set<String> savedPostIds = userId != null && !postIds.isEmpty() ? 
             new HashSet<>(savedPostRepository.findSavedPostIdsByUserIdAndPostIdsIn(userId, postIds, 0)) : Collections.emptySet();
 
-        return postPage.map(post -> {
-            boolean liked = likedPostIds.contains(post.getId());
-            boolean saved = savedPostIds.contains(post.getId());
-            return postMapper.toResponse(post, liked, saved);
-        });
+        Set<String> mutualFollowIds = userId != null ?
+            new HashSet<>(userFollowRepository.findMutualFollowUserIds(userId)) : Collections.emptySet();
+
+        List<PostResponse> visiblePosts = postPage.getContent().stream()
+            .filter(post -> canViewInFeed(post, userId, mutualFollowIds))
+            .map(post -> {
+                boolean liked = likedPostIds.contains(post.getId());
+                boolean saved = savedPostIds.contains(post.getId());
+                return postMapper.toResponse(post, liked, saved);
+            })
+            .toList();
+
+        return new org.springframework.data.domain.PageImpl<>(
+            visiblePosts,
+            PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdDate")),
+            postPage.getTotalElements()
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<PostResponse> getPostsByUserId(String targetUserId, String viewerId, int page, int size) {
+        boolean isOwner = viewerId != null && viewerId.equals(targetUserId);
+        boolean isAdmin = isCurrentViewerAdmin();
+
+        Page<Posts> postPage;
+        if (isOwner || isAdmin) {
+            // Chính chủ hoặc Admin: thấy TẤT CẢ bài của user (ACTIVE, PENDING_REVIEW, PRIVATE,...)
+            postPage = postsRepository.findAllByUserIdWithDetails(
+                    targetUserId,
+                    PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdDate"))
+            );
+        } else {
+            // Người khác: chỉ thấy bài ACTIVE
+            postPage = postsRepository.findActiveByUserIdWithDetails(
+                    targetUserId,
+                    PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdDate"))
+            );
+        }
+
+        List<String> postIds = postPage.getContent().stream().map(Posts::getId).toList();
+
+        Set<String> likedPostIds = viewerId != null && !postIds.isEmpty() ?
+                postLikeService.getLikedPostIds(viewerId, postIds) : Collections.emptySet();
+
+        Set<String> savedPostIds = viewerId != null && !postIds.isEmpty() ?
+                new HashSet<>(savedPostRepository.findSavedPostIdsByUserIdAndPostIdsIn(viewerId, postIds, 0)) : Collections.emptySet();
+
+        Set<String> mutualFollowIds = viewerId != null ?
+                new HashSet<>(userFollowRepository.findMutualFollowUserIds(viewerId)) : Collections.emptySet();
+
+        List<PostResponse> visiblePosts = postPage.getContent().stream()
+                .filter(post -> canViewInProfile(post, viewerId, isOwner, isAdmin, mutualFollowIds))
+                .map(post -> {
+                    boolean liked = likedPostIds.contains(post.getId());
+                    boolean saved = savedPostIds.contains(post.getId());
+                    return postMapper.toResponse(post, liked, saved);
+                })
+                .toList();
+
+        return new org.springframework.data.domain.PageImpl<>(
+                visiblePosts,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdDate")),
+                postPage.getTotalElements()
+        );
     }
 
     @Override
@@ -410,6 +568,20 @@ public class PostServiceImpl implements PostService {
             post.setTags(new ArrayList<>(newTags));
         }
 
+        // Cập nhật visibility nếu được truyền
+        if (request.getVisibility() != null) {
+            try {
+                PostVisibility newVisibility = PostVisibility.valueOf(request.getVisibility().toUpperCase());
+                post.setVisibility(newVisibility);
+                // Nếu đổi sang PRIVATE và đang PENDING_REVIEW → tự động ACTIVE (không cần duyệt)
+                if (newVisibility == PostVisibility.PRIVATE && post.getStatus() == PostStatus.PENDING_REVIEW) {
+                    post.setStatus(PostStatus.ACTIVE);
+                }
+            } catch (IllegalArgumentException e) {
+                log.warn("[Post] Invalid visibility value '{}' on update, ignored", request.getVisibility());
+            }
+        }
+
         Posts updatedPost = postsRepository.save(post);
 
         // user owner đang update, liked có thể true/false tùy user đó từng like hay chưa
@@ -424,7 +596,9 @@ public class PostServiceImpl implements PostService {
     public void deletePost(String postId, String userId) {
         Posts post = getPostEntityById(postId);
 
-        if (!post.getUser().getId().toString().equals(userId)) {
+        boolean isOwner = post.getUser().getId().toString().equals(userId);
+        boolean isAdmin = isCurrentViewerAdmin();
+        if (!isOwner && !isAdmin) {
             throw new AppException(ErrorCode.UNAUTHORIZED_POST_ACTION);
         }
 
@@ -444,5 +618,113 @@ public class PostServiceImpl implements PostService {
         post.setDeleted(1);
         post.setDeletedAt(java.time.LocalDateTime.now());
         postsRepository.save(post);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Visibility helper methods
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    /**
+     * Kiểm tra xem viewer có quyền xem bài hay không.
+     * Ném 404 nếu không có quyền (không lộ thông tin bài tồn tại).
+     */
+    private void checkViewPermission(Posts post, String viewerId) {
+        // Admin luôn có quyền xem mọi bài viết
+        if (isCurrentViewerAdmin()) return;
+
+        PostVisibility vis = post.getVisibility() != null ? post.getVisibility() : PostVisibility.PUBLIC;
+        String authorId = post.getUser() != null ? post.getUser().getId() : null;
+
+        if (vis == PostVisibility.PUBLIC) return;
+
+        // Tác giả luôn thấy bài của mình
+        if (viewerId != null && viewerId.equals(authorId)) return;
+
+        if (vis == PostVisibility.PRIVATE) {
+            // Chỉ tác giả, người khác → 404
+            throw new AppException(ErrorCode.POST_NOT_FOUND);
+        }
+
+        if (vis == PostVisibility.FOLLOWERS_ONLY) {
+            if (viewerId == null) throw new AppException(ErrorCode.POST_NOT_FOUND);
+            // Phải là mutual follow (2 chiều)
+            boolean isMutual = userFollowRepository.findMutualFollowUserIds(viewerId)
+                    .contains(authorId);
+            if (!isMutual) throw new AppException(ErrorCode.POST_NOT_FOUND);
+        }
+    }
+
+    /**
+     * Dùng cho public feed / explore / nearby / search / location:
+     * - Bài PRIVATE: Tuyệt đối KHÔNG xuất hiện trên trang chủ / feed cộng đồng (kể cả tác giả hay admin).
+     *   Bài riêng tư chỉ xuất hiện trong trang cá nhân (Profile) của chính chủ hoặc qua API quản trị /admin/posts.
+     * - Bài FOLLOWERS_ONLY: chỉ xuất hiện nếu viewer là bạn bè theo dõi 2 chiều hoặc chính tác giả.
+     * - Bài PUBLIC: hiển thị bình thường.
+     */
+    private boolean canViewInFeed(Posts post, String viewerId, Set<String> mutualFollowIds) {
+        if (post.getDeleted() != null && post.getDeleted() == 1) return false;
+        if (post.getStatus() == PostStatus.HIDDEN) return false;
+        if (reportRepository.existsByPostIdAndStatus(post.getId(), ReportStatus.PENDING)) return false;
+
+        PostVisibility vis = post.getVisibility() != null ? post.getVisibility() : PostVisibility.PUBLIC;
+        // Bài PRIVATE: Tuyệt đối không bao giờ hiển thị trên trang chủ / feed khám phá
+        if (vis == PostVisibility.PRIVATE) {
+            return false;
+        }
+
+        if (vis == PostVisibility.PUBLIC) {
+            return true;
+        }
+
+        if (vis == PostVisibility.FOLLOWERS_ONLY) {
+            String authorId = post.getUser() != null ? post.getUser().getId() : null;
+            if (viewerId != null && viewerId.equals(authorId)) return true;
+            return viewerId != null && mutualFollowIds.contains(authorId);
+        }
+
+        return false;
+    }
+
+    /**
+     * Dùng cho trang cá nhân (Profile):
+     * - Chính chủ hoặc Admin: thấy toàn bộ bài hợp lệ (ACTIVE, PENDING_REVIEW, PRIVATE).
+     * - Bài HIDDEN hoặc deleted = 1: Tuyệt đối KHÔNG hiển thị ở hồ sơ.
+     * - Bài đang có báo cáo PENDING: Tạm ẩn khỏi hồ sơ, chỉ quản lý trong Admin.
+     * - Người ngoài: chỉ thấy bài ACTIVE có visibility PUBLIC hoặc FOLLOWERS_ONLY (nếu là bạn bè 2 chiều).
+     */
+    private boolean canViewInProfile(Posts post, String viewerId, boolean isOwner, boolean isAdmin, Set<String> mutualFollowIds) {
+        // Bài viết đã bị xóa hoặc bị ẩn do vi phạm (HIDDEN): Tuyệt đối KHÔNG hiển thị ở hồ sơ cá nhân
+        if (post.getDeleted() != null && post.getDeleted() == 1) return false;
+        if (post.getStatus() == PostStatus.HIDDEN) return false;
+
+        // Bài viết đang bị báo cáo chờ xử lý: Tạm ẩn khỏi hồ sơ người dùng, chỉ quản lý ở trang kiểm duyệt Admin
+        if (reportRepository.existsByPostIdAndStatus(post.getId(), ReportStatus.PENDING)) {
+            return false;
+        }
+
+        if (isOwner || isAdmin) return true;
+
+        PostVisibility vis = post.getVisibility() != null ? post.getVisibility() : PostVisibility.PUBLIC;
+        if (vis == PostVisibility.PRIVATE) return false;
+        if (vis == PostVisibility.PUBLIC) return true;
+        if (vis == PostVisibility.FOLLOWERS_ONLY) {
+            String authorId = post.getUser() != null ? post.getUser().getId() : null;
+            return viewerId != null && mutualFollowIds.contains(authorId);
+        }
+        return false;
+    }
+
+    private boolean canView(Posts post, String viewerId, Set<String> mutualFollowIds) {
+        return canViewInFeed(post, viewerId, mutualFollowIds);
+    }
+
+    /**
+     * Kiểm tra xem người đang gửi request có quyền ADMIN hay không (dựa trên JWT Authorities)
+     */
+    private boolean isCurrentViewerAdmin() {
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) return false;
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ADMIN".equals(a.getAuthority()));
     }
 }

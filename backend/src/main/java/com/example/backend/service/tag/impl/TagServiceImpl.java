@@ -127,12 +127,24 @@ public class TagServiceImpl implements TagService {
         tagsRepository.delete(tag);
     }
 
+    /**
+     * Kiểm tra hashtag có vi phạm không.
+     *
+     * ⚠️ QUAN TRỌNG: Hashtag chỉ bị chặn khi EXACT MATCH với từ cấm.
+     * Không dùng CONTAINS (substring) match cho hashtag vì hashtag là 1 từ liền,
+     * rất dễ false positive:
+     *   - Từ cấm "dit" + hashtag "#reddit" → normalize → "reddit" CONTAINS "dit" → BỊ CHẶN SAI
+     *   - Từ cấm "ca" + hashtag "#hochiminhcity" → chứa "ca" → BỊ CHẶN SAI
+     *
+     * Chỉ block khi người dùng nhập đúng y hệt từ bị cấm làm hashtag.
+     */
     private void validateTag(String tagName) {
         String normalized = normalizeForModeration(tagName);
-        if (bannedWordCacheService.isBanned(normalized)) {
+        if (bannedWordCacheService.isBannedExactOnly(normalized)) {
             throw new AppException(ErrorCode.INVALID_TAG);
         }
     }
+
 
     private String normalizeTagName(String tagName) {
         if (tagName == null || tagName.trim().isEmpty()) {
@@ -153,26 +165,26 @@ public class TagServiceImpl implements TagService {
         return cleanName;
     }
 
+    /**
+     * Chuẩn hóa hashtag để kiểm tra từ cấm.
+     * Chỉ bỏ dấu tiếng Việt + ký tự đặc biệt.
+     * KHÔNG thay số thành chữ (tránh false positive: #photo3 → photoe → match sai).
+     * Việc decode leet-speak (1→i, 0→o...) chỉ cần thiết cho caption dài,
+     * không phù hợp với hashtag ngắn là 1 từ liền.
+     */
     private String normalizeForModeration(String input) {
         if (input == null) {
             return "";
         }
 
-        return input.toLowerCase()
-                .trim()
-                .replace("!", "i")
-                .replace("@", "a")
-                .replace("$", "s")
-                .replace("€", "e")
-                .replaceAll("#", "")
-                .replaceAll("[^a-z0-9]", "")
-                .replaceAll("0", "o")
-                .replaceAll("1", "i")
-                .replaceAll("3", "e")
-                .replaceAll("4", "a")
-                .replaceAll("5", "s")
-                .replaceAll("7", "t");
+        // Bỏ dấu tiếng Việt (NFD decompose rồi strip marks)
+        String noDiacritics = java.text.Normalizer.normalize(input.toLowerCase().trim(), java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "");
+
+        // Chỉ giữ chữ cái latin và số, bỏ ký tự đặc biệt (#, @, !, ...)
+        return noDiacritics.replaceAll("[^a-z0-9]", "");
     }
+
 
     private Tags createTagSafely(String cleanName) {
         try {

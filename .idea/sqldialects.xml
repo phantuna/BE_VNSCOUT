@@ -14,6 +14,8 @@
     <file url="file://$PROJECT_DIR$/backend/migration/V9__update_location_and_user_table.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/backend/src/main/resources/db/migration/V10__add_post_feed_indexes.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/backend/src/main/resources/db/migration/V11__add_location_coords_index.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/backend/src/main/resources/db/migration/V12__create_banned_words_table.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/backend/src/main/resources/db/migration/V13__add_visibility_to_posts.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/backend/src/main/resources/db/migration/V7__create_saved_posts.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/backend/src/main/resources/db/migration/V8__ALTER_TABLE_USER_PHOTO_METADATA.sql" dialect="MySQL" />
   </component>

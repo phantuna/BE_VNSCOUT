@@ -32,6 +32,19 @@ public class PostResponse {
     private Double manualLatitude;
     private Double manualLongitude;
 
+    /** ACTIVE | PENDING_REVIEW | HIDDEN */
+    private String status;
+
+    /**
+     * Lý do bài đang PENDING_REVIEW (nếu có).
+     * "NO_GPS" — ảnh thiếu GPS. "LOW_LEVEL" — level thấp.
+     */
+    private String pendingReason;
+
+    /** PUBLIC | FOLLOWERS_ONLY | PRIVATE */
+    private String visibility;
+
+
     private UserResponse author;
     private LocationsResponse location;
     private List<String> tags;

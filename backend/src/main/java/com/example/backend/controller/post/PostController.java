@@ -45,18 +45,22 @@ public class PostController {
     @GetMapping("/{postId}")
     public PostResponse getPostById(
             @PathVariable String postId,
-            @RequestParam(required = false) String viewerId
+            @RequestParam(required = false) String viewerId,
+            @AuthenticationPrincipal String authUserId
     ) {
-        return postService.getPostById(postId, viewerId);
+        String effectiveViewerId = (authUserId != null && !authUserId.isBlank()) ? authUserId : viewerId;
+        return postService.getPostById(postId, effectiveViewerId);
     }
 
     @GetMapping("/getAll")
     public Page<PostResponse> getAllPosts(
             @RequestParam(required = false) String viewerId,
+            @AuthenticationPrincipal String authUserId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        return postService.getAllPosts(viewerId, page, size);
+        String effectiveViewerId = (authUserId != null && !authUserId.isBlank()) ? authUserId : viewerId;
+        return postService.getAllPosts(effectiveViewerId, page, size);
     }
 
     @GetMapping("/nearby")
@@ -65,31 +69,49 @@ public class PostController {
             @RequestParam double lng,
             @RequestParam(defaultValue = "150") double radius,
             @RequestParam(required = false) String viewerId,
+            @AuthenticationPrincipal String authUserId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        return postService.getNearbyPosts(lat, lng, radius, viewerId, page, size);
+        String effectiveViewerId = (authUserId != null && !authUserId.isBlank()) ? authUserId : viewerId;
+        return postService.getNearbyPosts(lat, lng, radius, effectiveViewerId, page, size);
     }
 
     @GetMapping("/search")
     public Page<PostResponse> searchPosts(
             @RequestParam String q,
             @RequestParam(required = false) String viewerId,
+            @AuthenticationPrincipal String authUserId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
         if (q == null || q.trim().length() < 2) return Page.empty();
-        return postService.searchPosts(q, viewerId, page, size);
+        String effectiveViewerId = (authUserId != null && !authUserId.isBlank()) ? authUserId : viewerId;
+        return postService.searchPosts(q, effectiveViewerId, page, size);
     }
 
     @GetMapping("/location/{locationId}")
     public Page<PostResponse> getPostsByLocation(
             @PathVariable String locationId,
             @RequestParam(required = false) String viewerId,
+            @AuthenticationPrincipal String authUserId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        return postService.getPostsByLocation(locationId, viewerId, page, size);
+        String effectiveViewerId = (authUserId != null && !authUserId.isBlank()) ? authUserId : viewerId;
+        return postService.getPostsByLocation(locationId, effectiveViewerId, page, size);
+    }
+
+    @GetMapping("/user/{targetUserId}")
+    public Page<PostResponse> getPostsByUser(
+            @PathVariable String targetUserId,
+            @RequestParam(required = false) String viewerId,
+            @AuthenticationPrincipal String authUserId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        String effectiveViewerId = (authUserId != null && !authUserId.isBlank()) ? authUserId : viewerId;
+        return postService.getPostsByUserId(targetUserId, effectiveViewerId, page, size);
     }
 
     @DeleteMapping("/delete/{id}")

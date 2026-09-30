@@ -1,6 +1,7 @@
 package com.example.backend.service.location.impl;
 
 import com.example.backend.dto.request.location.LocationsRequest;
+import com.example.backend.dto.response.location.LocationClusterResponse;
 import com.example.backend.dto.response.location.LocationsResponse;
 import com.example.backend.dto.response.location.VietMapLocationResponse;
 import com.example.backend.entity.Locations;
@@ -25,6 +26,7 @@ import org.springframework.data.domain.PageRequest;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -212,5 +214,32 @@ public class LocationServiceImpl implements LocationService {
                 .toLowerCase()
                 .replaceAll("[^a-z0-9]", "")
                 .trim();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @Cacheable(value = "location-clusters", key = "#zoom")
+    public List<LocationClusterResponse> getLocationClusters(double zoom) {
+        // Zoom >= 11: FE vẽ marker riêng lẻ, không cần cluster
+        if (zoom >= 11) return List.of();
+
+        // zoom < 8  → gom theo tỉnh (level 0)
+        // zoom 8-10 → gom theo huyện (level 1)
+        int parentLevel = (zoom < 8) ? 0 : 1;
+
+        List<Object[]> rows = locationsRepository.findClustersRaw(parentLevel);
+
+        return rows.stream().map(row -> LocationClusterResponse.builder()
+                .id(row[0] != null ? row[0].toString() : null)
+                .name(row[1] != null ? row[1].toString() : null)
+                .latitude(row[2] != null ? new BigDecimal(row[2].toString()) : null)
+                .longitude(row[3] != null ? new BigDecimal(row[3].toString()) : null)
+                .code(row[4] != null ? row[4].toString() : null)
+                .spotCount(row[5] != null ? ((Number) row[5]).longValue() : 0L)
+                .serviceCount(row[6] != null ? ((Number) row[6]).longValue() : 0L)
+                .totalPostCount(row[7] != null ? ((Number) row[7]).longValue() : 0L)
+                .level(parentLevel)
+                .build()
+        ).collect(Collectors.toList());
     }
 }

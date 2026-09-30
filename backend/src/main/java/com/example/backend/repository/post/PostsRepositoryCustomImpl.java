@@ -3,7 +3,10 @@ package com.example.backend.repository.post;
 import com.example.backend.entity.Posts;
 import com.example.backend.entity.QPosts;
 import com.example.backend.enums.PostStatus;
+import com.example.backend.enums.PostVisibility;
+import com.example.backend.enums.ReportStatus;
 import com.querydsl.core.types.dsl.BooleanExpression;
+import com.querydsl.jpa.JPAExpressions;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -28,7 +31,12 @@ public class PostsRepositoryCustomImpl implements PostsRepositoryCustom {
     public Page<Posts> findAllPostsWithDetails(Pageable pageable) {
         BooleanExpression condition = posts.deleted.eq(0)
                 .and(posts.status.isNull().or(posts.status.eq(PostStatus.ACTIVE)))
-                .and(posts.location.isNull().or(posts.location.deleted.isNull()).or(posts.location.deleted.eq(0)));
+                .and(posts.location.isNull().or(posts.location.deleted.isNull()).or(posts.location.deleted.eq(0)))
+                .and(posts.visibility.isNull().or(posts.visibility.ne(PostVisibility.PRIVATE)))
+                .and(JPAExpressions.selectOne()
+                        .from(report)
+                        .where(report.post.eq(posts).and(report.status.eq(ReportStatus.PENDING)))
+                        .notExists());
 
         List<Posts> content = queryFactory
                 .selectFrom(posts)
@@ -53,7 +61,6 @@ public class PostsRepositoryCustomImpl implements PostsRepositoryCustom {
     public Optional<Posts> findByIdWithDetails(String id) {
         BooleanExpression condition = posts.id.eq(id)
                 .and(posts.deleted.eq(0))
-                .and(posts.status.isNull().or(posts.status.eq(PostStatus.ACTIVE)))
                 .and(posts.location.isNull().or(posts.location.deleted.isNull()).or(posts.location.deleted.eq(0)));
 
         Posts post = queryFactory
@@ -94,6 +101,11 @@ public class PostsRepositoryCustomImpl implements PostsRepositoryCustom {
         
         BooleanExpression condition = posts.deleted.eq(0)
                 .and(posts.status.isNull().or(posts.status.eq(PostStatus.ACTIVE)))
+                .and(posts.visibility.isNull().or(posts.visibility.ne(PostVisibility.PRIVATE)))
+                .and(JPAExpressions.selectOne()
+                        .from(report)
+                        .where(report.post.eq(posts).and(report.status.eq(ReportStatus.PENDING)))
+                        .notExists())
                 .and(posts.caption.containsIgnoreCase(query)
                         .or(qTags.name.containsIgnoreCase(query))
                         .or(posts.location.name.containsIgnoreCase(query)));

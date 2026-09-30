@@ -63,6 +63,21 @@ public class BannedWordCacheService {
         return false;
     }
 
+    /**
+     * Chỉ kiểm tra exact match — KHÔNG dùng CONTAINS substring.
+     * Dùng cho hashtag validation để tránh false positive:
+     *   "#reddit" không bị chặn dù có từ cấm "dit" trong containsWords.
+     *   "#hochiminhcity" không bị chặn dù có từ cấm "ca" trong containsWords.
+     *
+     * Chỉ block hashtag bằng đúng y hệt một từ cấm trong exactWords.
+     */
+    public boolean isBannedExactOnly(String input) {
+        String normalized = normalizeForFilter(input);
+        if (normalized.isBlank()) return false;
+        return exactWords.contains(normalized);
+    }
+
+
     public void addToCache(BannedWord bannedWord) {
         String normalized = normalizeForFilter(bannedWord.getWord());
 

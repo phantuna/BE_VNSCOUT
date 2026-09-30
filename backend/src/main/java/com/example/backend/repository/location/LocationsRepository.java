@@ -42,4 +42,31 @@ public interface LocationsRepository extends JpaRepository<Locations, String>,Lo
     @Transactional
     @Query(value = "UPDATE locations SET deleted = :deleted WHERE id = :locationId", nativeQuery = true)
     void toggleLocationStatus(@Param("locationId") String locationId, @Param("deleted") int deleted);
+
+    /**
+     * Tổng hợp cluster theo tỉnh/thành (level 0):
+     * Đếm số SPOT, SERVICE và tổng post_count trong từng tỉnh.
+     * Chỉ tính các địa điểm check-in (level=2) còn hoạt động.
+     */
+    @Query(value = """
+        SELECT
+            p.id                             AS id,
+            p.name                           AS name,
+            p.latitude                       AS latitude,
+            p.longitude                      AS longitude,
+            p.code                           AS code,
+            SUM(CASE WHEN l.location_type = 'SPOT'    AND l.deleted = 0 THEN 1 ELSE 0 END) AS spotCount,
+            SUM(CASE WHEN l.location_type = 'SERVICE' AND l.deleted = 0 THEN 1 ELSE 0 END) AS serviceCount,
+            COALESCE(SUM(CASE WHEN l.deleted = 0 THEN l.post_count ELSE 0 END), 0)          AS totalPostCount
+        FROM locations p
+        LEFT JOIN locations l ON l.parent_id = p.id AND l.level = 2
+        WHERE p.level = :parentLevel
+          AND p.deleted = 0
+          AND p.latitude IS NOT NULL
+          AND p.longitude IS NOT NULL
+        GROUP BY p.id, p.name, p.latitude, p.longitude, p.code
+        HAVING (SUM(CASE WHEN l.deleted = 0 THEN 1 ELSE 0 END)) > 0
+        ORDER BY totalPostCount DESC
+        """, nativeQuery = true)
+    List<Object[]> findClustersRaw(@Param("parentLevel") int parentLevel);
 }

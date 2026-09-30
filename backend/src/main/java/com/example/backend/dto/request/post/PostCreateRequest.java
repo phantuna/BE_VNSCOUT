@@ -28,4 +28,10 @@ public class PostCreateRequest {
     
     private List<String> tags;
     private List<String> photoIds;
-}
+
+    /**
+     * Phạm vi hiển thị: PUBLIC | FOLLOWERS_ONLY | PRIVATE
+     * Mặc định null → backend sẽ dùng PUBLIC
+     */
+    private String visibility;
+}

@@ -1,6 +1,7 @@
 package com.example.backend.controller.location;
 
 import com.example.backend.dto.request.location.LocationsRequest;
+import com.example.backend.dto.response.location.LocationClusterResponse;
 import com.example.backend.dto.response.location.LocationsResponse;
 import com.example.backend.service.location.LocationService;
 import lombok.RequiredArgsConstructor;
@@ -42,5 +43,19 @@ public class LocationController {
     @DeleteMapping("/{id}")
     public void delete(@PathVariable String id) {
         locationService.deleteLocation(id);
+    }
+
+    /**
+     * Trả về danh sách cluster địa điểm để vẽ bubble trên bản đồ khi zoom xa.
+     * FE gọi khi zoom thay đổi qua ngưỡng (< 8 hoặc 8–10).
+     * Không cần auth vì đây là thông tin công khai.
+     *
+     * @param zoom zoom level hiện tại của bản đồ (mặc định 5.5 — zoom quốc gia)
+     */
+    @GetMapping("/clusters")
+    public List<LocationClusterResponse> getClusters(
+            @RequestParam(defaultValue = "5.5") double zoom
+    ) {
+        return locationService.getLocationClusters(zoom);
     }
 }

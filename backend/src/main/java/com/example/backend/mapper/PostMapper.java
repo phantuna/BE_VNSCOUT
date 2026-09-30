@@ -22,6 +22,16 @@ public class PostMapper {
     public PostResponse toResponse(Posts post, boolean liked, boolean saved) {
         if (post == null) return null;
 
+        // Tính pendingReason để FE hiển thị thông báo phù hợp
+        String pendingReason = null;
+        if (post.getStatus() != null && post.getStatus().name().equals("PENDING_REVIEW")) {
+            boolean hasNoGps = post.getPhotos() != null && post.getPhotos().stream().anyMatch(p -> {
+                var meta = p.getMetadata();
+                return meta == null || meta.getGpsLatitude() == null || meta.getGpsLongitude() == null;
+            });
+            pendingReason = hasNoGps ? "NO_GPS" : "LOW_LEVEL";
+        }
+
         return PostResponse.builder()
                 .id(post.getId())
                 .caption(post.getCaption())
@@ -33,6 +43,9 @@ public class PostMapper {
                 .createdDate(post.getCreatedDate())
                 .manualLatitude(post.getManualLatitude())
                 .manualLongitude(post.getManualLongitude())
+                .status(post.getStatus() != null ? post.getStatus().name() : "ACTIVE")
+                .pendingReason(pendingReason)
+                .visibility(post.getVisibility() != null ? post.getVisibility().name() : "PUBLIC")
                 .author(mapAuthor(post))
                 .location(mapLocation(post))
                 .tags(post.getTags() != null
@@ -43,6 +56,7 @@ public class PostMapper {
                         : List.of())
                 .build();
     }
+
 
     private UserResponse mapAuthor(Posts post) {
         if (post.getUser() == null) return null;

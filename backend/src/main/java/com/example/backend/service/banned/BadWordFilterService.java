@@ -41,7 +41,17 @@ public class BadWordFilterService {
         log.info("Loaded {} bad words from database into memory.", badWords.size());
     }
 
-
+    /**
+     * Tạo regex censor cho từ cấm trong caption/comment (văn bản dài).
+     *
+     * Nguyên tắc:
+     * - Cho phép leet-speak (đ≡d, c≡k, i≡1, o≡0...)
+     * - Cho phép TỐI ĐA 1 ký tự ngăn cách giữa các chữ (d.i.t, d_i_t)
+     *   KHÔNG dùng [\W_]* (greedy, vô hạn) vì gây over-match:
+     *   "dit" regex: d...nhiều ký tự...i...nhiều ký tự...t → match "Đà Lạt đẹp" sai
+     * - Boundary (?<!\p{L})...(?!\p{L}): chỉ match khi từ không nằm TRONG chữ cái liền kề
+     *   Ví dụ: "dit" khớp "dit !" nhưng KHÔNG khớp "reddit" hay "địa điểm"
+     */
     private Pattern buildAdvancedRegex(String word) {
         StringBuilder patternStr = new StringBuilder();
         
@@ -67,14 +77,22 @@ public class BadWordFilterService {
                 patternStr.append(c);
             }
             
+            // Tối đa 1 ký tự ngăn cách (không phải chữ/số) giữa các ký tự
+            // Thay [\W_]* (greedy/vô hạn) bằng [\W_]? (optional, tối đa 1)
             if (i < word.length() - 1) {
-                patternStr.append("[\\W_]*");
+                patternStr.append("[\\W_]?");
             }
         }
         
+        // Word boundary: từ cấm không được nằm TRONG một chữ dài hơn
         return Pattern.compile("(?ui)(?<!\\p{L})" + patternStr.toString() + "(?!\\p{L})");
     }
 
+    /**
+     * Censor từ cấm trong văn bản (thay bằng ***).
+     * Dùng cho caption và comment — văn bản dài, có khoảng cách giữa các từ.
+     * Không ném exception, chỉ che đi.
+     */
     public String censorText(String input) {
         if (input == null || input.trim().isEmpty()) {
             return input;
@@ -92,3 +110,4 @@ public class BadWordFilterService {
         return censoredText;
     }
 }
+

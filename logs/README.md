@@ -1,0 +1,625 @@
+# Vietnam Photo Scout - Design & Technical Documentation
+
+## 📱 Project Overview
+
+**Vietnam Photo Scout** là một nền tảng mạng xã hội chuyên biệt dành cho cộng đồng đam mê nhiếp ảnh tại Việt Nam. Dự án được chia thành hai phần chính:
+
+- **Frontend (Next.js):** Đảm nhiệm trải nghiệm người dùng (UI/UX) với giao diện hiện đại, bản đồ tương tác (VietMap), quản lý trạng thái, hiển thị thông báo thời gian thực và quản lý các trang thông tin địa điểm (mini social hubs).
+- **Backend (Spring Boot):** Cung cấp hệ thống API mạnh mẽ, bảo mật JWT, quản lý cơ sở dữ liệu MySQL, xử lý logic bài viết, bình luận đa tầng (nested comments) và đẩy thông báo Real-time (Server-Sent Events).
+
+**Target Users:**
+- Nhiếp ảnh gia chuyên nghiệp & bán chuyên
+- Người đam mê nhiếp ảnh & Content Creators
+- Người yêu thích du lịch và travel photography
+
+---
+
+## 🏗️ Architecture Overview
+
+### Tech Stack
+- **Frontend:** Next.js (App Router) + React + TypeScript
+- **UI Components:** shadcn/ui + Tailwind CSS
+- **Maps:** VietMap (interactive location mapping)
+- **State Management:** React hooks + SWR (client-side)
+- **Backend:** Spring Boot (Java) + Hibernate JPA
+- **Database:** MySQL
+- **Authentication:** Spring Security + JWT Tokens
+- **Real-time:** Server-Sent Events (SSE) cho hệ thống Notification
+
+
+
+## 🎯 Core Features
+
+### 1. Location-Based Mini Social Hubs [Đã hoàn thành cơ bản]
+**Concept:** Mỗi địa điểm (Hà Nội, Lăng Bác, Bãi Đá Cổ Thạch) là một không gian riêng biệt với:
+- Ảnh bìa địa điểm
+- Thông tin (tỉnh, danh mục, giờ vàng, số bài viết)
+- Input đăng bài: "Bạn đang ở [địa điểm]? Có cảnh báo hay mẹo gì không?"
+- Feed hiển thị chỉ bài viết của địa điểm đó
+- Thống kê (lượt check-in, số bài viết)
+
+**User Flow:**
+```
+Trang Chủ (Location Grid)
+  ↓
+Click vào Location Card
+  ↓
+Location Detail Page
+  ↓
+Chọn "Đăng bài viết"
+  ↓
+LocationPostForm (với search location)
+  ↓
+Publish → Bài viết xuất hiện trong feed của location
+```
+
+### 2. Hierarchical Location System [Đã hoàn thành Backend]
+**Cấu trúc phân cấp:**
+```
+Vietnam (Country - Level 0)
+├── Hà Nội (Province - Level 1)
+│   ├── Hoàn Kiếm (District - Level 2)
+│   │   └── Hoan Kiem Lake (Landmark - Level 3)
+├── Đà Nẵng (Province)
+│   ├── Ba Na Hills (District)
+│   │   └── Golden Bridge (Landmark)
+└── ...
+```
+
+**Benefits:**
+- Filter posts recursively (bài viết ở Hà Nội bao gồm tất cả bài ở các quận)
+- Smart location navigation (breadcrumb path)
+- "Nearby locations" suggestions
+- Location-aware post recommendations
+
+### 3. Smart Location Selection in Create Post [Đang phát triển / Mock data]
+**Features:**
+- **Search:** Nhập keyword để tìm kiếm location
+- **Geolocation:** Click "Gần tôi" để tự động detect vị trí & gợi ý 5 địa điểm gần nhất
+- **Dropdown UI:** Hiển thị danh sách filterable với description
+
+### 4. User Profile & Follow System [Đang hoàn thiện]
+**Own Profile Features:**
+- Avatar, bio, follower/following count
+- "Edit Profile" → Settings page
+- "Share Profile" → Dialog with copy link + social share (FB/Twitter/WhatsApp)
+- Tabs: Posts, Saved Posts, Liked Posts
+- Statistics (total posts, followers, engagement)
+
+**Other User Profile:**
+- Follow/Unfollow button
+- Message button
+- View user's posts & activity
+
+### 5. Post Management [Đã hoàn thành cốt lõi (Like, Comment đa tầng, Upload)]
+**Create Post:**
+- Location selection (search + geolocation)
+- Content text editor
+- Multiple image upload with carousel
+- Tags
+- Photo tips & camera settings
+- Post type: Tip/Warning/Photo
+
+**Post Interactions:**
+- Like/Unlike
+- Save/Unsave
+- Comment with replies
+- View like count & comments
+- Share post
+
+### 6. Discovery & Exploration [Chưa hoàn thành]
+**Explore Page Tabs:**
+1. **Photos** - Browse all posts with location info
+2. **Photographers** - Follow photographers, view profiles
+3. **Tags** - Browse trending hashtags with preview images
+
+**Trending Section:**
+- Posts trending by engagement
+- Photographers by follower growth
+- Locations by post activity
+- Hashtags by usage
+
+### 7. Direct Messaging [hưa bắt đầu]
+**Features:**
+- Conversation list with last message preview
+- Message history with timestamps
+- Read status indicators
+- Typing indicators (future enhancement)
+
+### 8. Notifications Center [Đã hoàn thành với Real-time SSE]
+**Types:**
+- UserFollowed: "X started following you"
+- PostLiked: "X liked your post"
+- CommentAdded: "X commented on your post"
+- CommentLiked: "X liked your comment"
+- MessageReceived: "New message from X"
+
+**UI:**
+- List view with unread badges
+- Mark as read / Mark all as read
+- Delete notification
+- Unread count badge in header
+
+### 9. Settings & Privacy [Đang phát triển]
+**User Settings:**
+- Edit profile (displayName, bio, avatar)
+- Privacy (public/private profile)
+- Notifications preferences
+- Security (password change, session management)
+- Logout / Delete account
+
+### 10. Interactive Map [Đã hoàn thành (Tích hợp VietMap)]
+**Features:**
+- Pin all landmark locations on Vietnam map
+- Post count badges on pins
+- Click pin → Location Detail Page
+- "View Posts in Feed" button
+- Recent photos preview
+
+---
+
+## 🎨 UI/UX Design
+
+### Design System
+
+**Color Palette:**
+- Primary: Orange (#FF6B35) - Warm, photography-focused
+- Secondary: Dark Blue (#1F2937) - Professional
+- Accent: Light Gold (#FDB913) - Golden hour theme
+- Background: Light Gray (#F3F4F6)
+- Card: White (#FFFFFF)
+- Text: Dark Gray (#111827)
+- Muted: Medium Gray (#6B7280)
+
+**Typography:**
+- Headings: System font (Inter)
+- Body: System font (Inter)
+- Mono: System font (Monaco) for code/technical info
+
+**Grid System:**
+- 12-column grid layout (Tailwind)
+- Desktop: 8 cols (main) + 4 cols (sidebar)
+- Mobile: Full width, stacked vertically
+- Responsive breakpoints: sm/md/lg/xl
+
+**Spacing:**
+- Base unit: 4px (Tailwind scale)
+- Gap between sections: 24px (gap-6)
+- Card padding: 16px-24px (p-4 to p-6)
+- Line height: 1.5 (leading-relaxed)
+
+### Layout Patterns
+
+- Sử dụng 12-column grid layout để tạo độ linh hoạt
+- Desktop: 8 cols (main content) + 4 cols (sidebar)
+- Dạng thẻ Card cho từng phần tử nội dung
+
+**Button Styles:**
+- Primary: Orange background, white text
+- Secondary: Gray background
+- Outline: Border only
+- Ghost: Transparent background
+
+---
+
+## 📄 Page Specifications
+
+### 1. Home Page `/`
+**Purpose:** Discover and browse popular locations
+
+**Components:**
+- Header: "Khám Phá Địa Điểm"
+- Location Cards Grid (responsive: 1col mobile, 2col tablet, 3col desktop, 4col large)
+- Each card shows: Preview image, location name, post count badge, category, province, golden hour time
+
+**Data Flow:**
+```
+LOCATIONS (filtered: level = landmark/district)
+  → Sort by post count (descending)
+  → Display as 3D cards with hover effects
+  → Click → Navigate to /location/[id]
+```
+
+### 2. Location Detail Page `/location/[id]`
+**Purpose:** Main hub for location-specific content and interactions
+
+**Sections:**
+1. Location Stats Bar (4 columns):
+    - Province info
+    - Category badge
+    - Golden hour time
+    - Post count
+
+2. 12-Column Grid Layout:
+   **Left (8 cols):**
+    - Post Composer
+    - Posts Feed (location-specific)
+    - Empty state message
+
+   **Right (4 cols):**
+    - Location Info Widget
+    - Nearby Locations Quick Links
+
+**Key Feature - LocationPostForm:**
+- Avatar of current user
+- Content textarea
+- Image upload carousel
+- Tags input
+- Camera settings
+- Photo tip input
+- Post type selector (Tip/Warning)
+
+### 3. Create Post Page `/create`
+**Purpose:** Create posts from anywhere in the app
+
+**Sections:**
+1. User Profile Header
+2. Post Composer Area:
+    - Content textarea with rich text (future)
+    - **LocationSearchSelector** (smart location picker)
+    - Image carousel uploader
+    - Tags
+    - Photo tips
+    - Camera settings
+
+**LocationSearchSelector Features:**
+- Cập nhật danh sách theo thời gian thực khi gõ
+- Gợi ý vị trí theo toạ độ hiện tại của người dùng
+
+### 4. Explore Page `/explore`
+**Purpose:** Discover content across the platform
+
+**Tabs:**
+1. **Photos Tab**
+    - Check-ins widget
+    - Trending tags widget
+    - Suggested photographers
+    - Post grid by latest/trending
+
+2. **Photographers Tab**
+    - Grid of users
+    - Avatar, name, follower count
+    - Follow/Following button
+    - Link to profile
+
+3. **Tags Tab**
+    - Grid of trending hashtags
+    - Tag name, usage count
+    - Preview images
+    - Click to filter by tag
+
+### 5. Post Detail Page `/post/[id]`
+**Purpose:** View full post with interactions and comments
+
+**Sections:**
+1. Image Carousel
+    - Swipe/arrow navigation
+    - Thumbnail preview
+    - Image count indicator
+
+2. Post Header
+    - Author info (avatar, name, timestamp)
+    - Like/Save/Share buttons
+    - Like count
+
+3. Post Content
+    - Text content
+    - Tags display
+    - Camera settings (if available)
+    - Photo tip
+
+4. Comments Section
+    - Comment input (reply to author)
+    - Comments list
+    - Nested replies
+    - Like comments
+
+### 6. Profile Pages
+
+**Own Profile `/profile`**
+- Edit Profile button → `/settings`
+- Share Profile button → Dialog
+- Stats cards (posts, followers, following)
+- Tabs: Posts, Saved, Liked
+- Post grid
+
+**Other User Profile `/profile/[id]`**
+- Follow/Following button
+- Message button
+- Same tab structure as own profile
+- View their posts
+
+**Share Profile Dialog:**
+```
+Profile Link Input + Copy Button
+Social Share Buttons:
+  - Facebook
+  - Twitter
+  - WhatsApp
+"Copied!" feedback on copy
+```
+
+### 7. Messages Page `/messages`
+**Purpose:** Direct messaging with other users
+
+**Layout:**
+1. Conversations List (Left sidebar or mobile expandable)
+    - User avatar & name
+    - Last message preview
+    - Timestamp
+    - Unread indicator
+
+2. Chat Area (Main)
+    - Message history (scrollable)
+    - Message bubbles (left/right based on sender)
+    - Timestamp on each message
+    - Read status indicator
+    - Message input with send button
+
+### 8. Notifications Page `/notifications`
+**Purpose:** View and manage notifications
+
+**UI:**
+- Notification list with icons
+- Each notification has:
+    - Avatar of related user
+    - Action text (e.g., "X liked your post")
+    - Related content preview
+    - Timestamp
+    - Unread badge
+    - Read/Delete buttons
+
+**Filters:**
+- All notifications
+- Unread only
+- Delete individual or clear all
+
+### 9. Settings Page `/settings`
+**Purpose:** Manage account and preferences
+
+**Sections:**
+
+**1. Profile Settings**
+- Edit displayName
+- Edit bio
+- Upload/change avatar
+- Save changes
+
+**2. Privacy & Security**
+- Public/Private profile toggle
+- Block/unblock users (future)
+- Activity visibility
+
+**3. Notifications Settings**
+- Toggle notification types (likes, comments, follows, messages)
+- Email notification preferences
+- Notification frequency
+
+**4. Account Security**
+- Current password
+- New password input
+- Change password button
+- Session management
+- Logout from other devices
+
+**5. Danger Zone**
+- Delete account with confirmation modal
+
+### 10. Map Page `/map`
+**Purpose:** Interactive map of locations and posts
+
+**Features:**
+- Interactive Vietnam map with VietMap library
+- Pins for each landmark location
+- Post count badge on pins
+- Click pin → Show location detail sidebar:
+    - Location name & info
+    - Post count
+    - Preview images
+    - "View Posts in Feed" button
+    - Recent photos grid
+
+---
+
+
+
+## 🔄 Key User Flows
+
+### Flow 1: Discover & Post from Location
+1. User opens home page → sees location cards
+2. Clicks location card → enters location mini hub
+3. Sees "Đăng bài viết" input
+4. Clicks → form expands or navigates to /create
+5. LocationPostForm shows current location pre-selected
+6. User adds images, tags, tips
+7. Clicks publish → post added to location feed
+8. Post visible to everyone visiting that location
+
+### Flow 2: Create Post from Anywhere
+1. User clicks "Create" in navigation
+2. Arrives at /create page
+3. Clicks location field
+4. LocationSearchSelector appears with:
+   - Recent/nearby locations (if geolocation enabled)
+   - Search input for filtering
+   - Full location list
+5. Selects location
+6. Fills in content, images, tags
+7. Publishes
+8. Post appears in location's feed
+
+### Flow 3: Follow Photographer
+1. User views another user's profile (/profile/[id])
+2. Clicks "Follow" button
+3. Button changes to "Following"
+4. User's posts start appearing in recommendations
+5. User can receive notifications for new posts (if enabled)
+
+### Flow 4: Share Profile
+1. User opens own profile
+2. Clicks "Share Profile"
+3. Dialog opens with:
+   - Profile link (copyable)
+   - Social share buttons
+4. Click copy → clipboard feedback
+5. Click social share → open share dialog for that platform
+6. Other users can access shared profile
+
+---
+
+## 🔌 API Integration Points (Backend Needed)
+
+### Core Endpoints Required:
+1. **Auth:** Register, Login, Logout, Refresh Token
+2. **Users:** Get profile, Update profile, Follow/Unfollow
+3. **Locations:** Get all, Get single, Get children, Search
+4. **Posts:** Create, Get, Update, Delete, Like, Save, Comment
+5. **Messages:** Get conversations, Get messages, Send message, Mark as read
+6. **Notifications:** Get notifications, Mark as read, Delete
+7. **Search:** Search posts, users, tags, locations
+8. **Upload:** Upload images to cloud storage
+
+### Current State:
+- Frontend: 100% implemented with mock data
+- Backend: Ready for implementation based on provided API specification
+- Database: Schema defined, ready to setup
+
+---
+
+## 🚀 Performance Optimizations
+
+1. **Image Optimization**
+    - Next.js Image component with `priority` & `loading` props
+    - Responsive `sizes` attribute
+    - WebP format for modern browsers
+
+2. **Code Splitting**
+    - Dynamic imports for heavy components
+    - Route-based code splitting (Next.js automatic)
+
+3. **Caching Strategy**
+    - SWR for client-side data fetching & caching
+    - Revalidation on demand
+    - localStorage for non-critical UI state
+
+4. **Rendering**
+    - Server components where possible
+    - Suspense boundaries for async data
+    - Optimistic UI updates for interactions
+
+5. **Grid System**
+    - Tailwind CSS for small bundle size
+    - Responsive utilities prevent layout shift
+    - 12-column layout scales to any screen size
+
+---
+
+## 📱 Responsive Design
+
+**Breakpoints:**
+- Mobile: < 640px (full width)
+- Tablet: 640px - 1024px (single column stacked)
+- Desktop: > 1024px (8-4 column grid)
+
+**Mobile-First Approach:**
+- Mặc định sử dụng bố cục cột đơn (full width) cho thiết bị di động.
+- Trên tablet (từ 768px trở lên), nội dung được chia thành 2 cột.
+- Trên màn hình Desktop lớn (từ 1024px trở lên), mở rộng ra lưới 12 cột với khoảng cách gap là 24px.
+
+---
+
+## 🔐 Security Considerations
+
+1. **Authentication:** JWT tokens with refresh mechanism
+2. **Password:** Hashed with bcrypt (minimum 10 rounds)
+3. **API Validation:** Input sanitization on backend
+4. **CORS:** Configured for frontend origin only
+5. **File Upload:** Validate mime types, size limits, virus scan
+6. **SQL Injection:** Parameterized queries
+7. **XSS Prevention:** React's default escaping + sanitization
+8. **Session Management:** HTTP-only cookies for tokens
+9. **Rate Limiting:** On auth and write operations
+10. **User Privacy:** Row-level security on user data
+
+---
+
+## 📊 Analytics & Metrics
+
+**Track (for future):**
+- User engagement (posts, likes, comments)
+- Popular locations (post count, views)
+- Trending content (posts, hashtags)
+- User retention (DAU, MAU)
+- Location visit patterns
+- Peak golden hour times
+
+---
+
+## 🎯 Future Enhancements
+
+### Phase 2:
+- [x] Real-time notifications (SSE - Server-Sent Events)
+- [ ] Direct Messaging / Chat (WebSocket)
+- [ ] Live video streaming from locations
+- [ ] AR filters for photos
+- [ ] Location-based meetups (organizing photography groups)
+- [ ] Sponsored locations/featured posts
+- [ ] Photographer rankings/leaderboards
+- [ ] Portfolio builder for photographers
+- [ ] Commission marketplace
+
+### Phase 3:
+- [ ] AI photo analysis (composition, lighting scores)
+- [ ] Recommendation engine (similar locations, photographers)
+- [ ] Mobile native apps (React Native)
+- [ ] Offline mode
+- [ ] Advanced analytics dashboard
+- [ ] Payment processing (for premium features)
+
+---
+
+## 📚 Component Library (shadcn/ui)
+
+Used components:
+- Button, Avatar, Badge, Card, Tabs, Dialog
+- Input, Textarea, Form
+- Separator, ScrollArea, Tooltip
+- Accordion, AlertDialog, DropdownMenu
+- And more as needed
+
+Custom components:
+- LocationSearchSelector (enhanced location picker)
+- LocationPostForm (location-specific post creation)
+- ProfileView (user profile display)
+- PostCard (reusable post display)
+- VietMap (interactive map)
+- And more for specific features
+
+---
+
+## 🛠️ Development Guidelines
+
+1. **Code Style:** Follow Next.js & React best practices
+2. **Components:** Small, single-responsibility, reusable
+3. **Styling:** Tailwind CSS with design tokens
+4. **TypeScript:** Strict mode enabled
+5. **Testing:** Unit tests for utilities, E2E for critical flows (TODO)
+6. **Documentation:** Comment complex logic, maintain this design doc
+7. **Git:** Feature branches, meaningful commit messages
+8. **Performance:** Check Core Web Vitals regularly
+
+---
+
+## 📞 Support & Contact
+
+For questions about design or implementation:
+- Review this document first
+- Check existing component implementations
+- Refer to Design System for UI patterns
+- Follow established user flows
+
+---
+
+**Document Version:** 1.0
+**Last Updated:** March 2026
+**Status:** Active Development

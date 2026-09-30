@@ -1,27 +1,19 @@
 
+# services:
+#   db:
+#     image: mysql:8.0
+#     container_name: vnscout_db
+#     restart: unless-stopped
+#     environment:
+#       MYSQL_DATABASE: VNScout
+#       MYSQL_ROOT_PASSWORD: 123456
+#     ports:
+#       - "127.0.0.1:3307:3306"
+#     volumes:
+#       - mysql_data:/var/lib/mysql
+#     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
 services:
-  db:
-    image: mysql:8.0
-    container_name: vnscout_db
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: VNScout
-      MYSQL_ROOT_PASSWORD: 123456
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-
-  ml_model:
-    build:
-      context: ../VNSCOUT_MODEL
-      dockerfile: Dockerfile
-    container_name: vnscout_ml_model
-    ports:
-      - "8000:8000"
-    restart: unless-stopped
-
   backend:
     build: 
       context: ./backend
@@ -29,15 +21,12 @@ services:
     container_name: vnscout_backend
     ports:
       - "8081:8081"
-    depends_on:
-      - db
-      - ml_model
     restart: unless-stopped
     environment:
-      # Kết nối tới container db trong cùng mạng Docker
-      - SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/VNScout?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Bangkok
-      - SPRING_DATASOURCE_USERNAME=root
-      - SPRING_DATASOURCE_PASSWORD=123456
+      # Kết nối tới MySQL ngoài cụm (mặc định trỏ ra máy host qua host.docker.internal)
+      - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL:-jdbc:mysql://host.docker.internal:3306/VNScout?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Bangkok}
+      - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME:-root}
+      - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD:-123456}
       # Các Key quan trọng, Docker sẽ tự động lấy từ file .env cùng thư mục với docker-compose.yml
       - CLOUD_NAME=${CLOUD_NAME}
       - CLOUD_API_KEY=${CLOUD_API_KEY}
@@ -46,13 +35,12 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - MAIL_USERNAME=${MAIL_USERNAME}
       - MAIL_PASSWORD=${MAIL_PASSWORD}
-      - MODERATION_TOXIC_COMMENT_URL=http://ml_model:8000/check-toxic
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
   frontend:
     build: 
-      context: ../FE_VNSCOUT
+      context: "../VibeCode- ĐATN/v0_photo_scount_v1"
       dockerfile: Dockerfile
     container_name: vnscout_frontend
     ports:
@@ -61,5 +49,5 @@ services:
       - backend
     restart: unless-stopped
 
-volumes:
-  mysql_data:
+# volumes:
+#   mysql_data:
